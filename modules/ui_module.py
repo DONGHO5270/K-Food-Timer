@@ -122,8 +122,10 @@ class UIManager:
         Args:
             title (str): 표시할 메뉴 제목
         """
-        self.clear_screen()
-        print(f"\n===== {title} =====")
+        clear_screen()  # utils 모듈의 함수 사용
+        print("\n" + "=" * 50)
+        print(f"{title:^50}")
+        print("=" * 50 + "\n")
     
     @staticmethod
     @lru_cache(maxsize=128)
@@ -236,7 +238,7 @@ class UIManager:
             
         # 리스트 컴프리헨션 활용
         timer_info = ["\n=== 활성 타이머 ==="] + [
-            f"- {timer.name}: {timer.get_formatted_time()} {'[일시정지]' if timer.is_paused else ''}"
+            f"- {timer.name}: {timer.get_formatted_time()} {'[일시정지]' if timer.is_paused else '[실행중]'}"
             for _, timer in active_timers.items()
         ]
         
@@ -244,9 +246,18 @@ class UIManager:
             
     def main_menu(self):
         """메인 메뉴 표시 및 처리"""
+        self.current_menu = "main"
+        
         while True:
-            self.menu_manager.display_menu_header("메인 메뉴")
+            # 메뉴 헤더 표시
+            self.display_menu_header("메인 메뉴")
             
+            # 활성 타이머 정보 표시 (있을 경우)
+            active_timers_info = self.get_active_timers_info()
+            if active_timers_info:
+                print(active_timers_info)
+            
+            # 메인 메뉴 옵션 표시
             options = [
                 "타이머 시작",
                 "제품 관리",
@@ -258,21 +269,117 @@ class UIManager:
             for i, option in enumerate(options, 1):
                 print(f"{i}. {option}")
                 
-            choice = self.menu_manager.get_user_input("\n선택하세요 (1-5): ")
+            # 사용자 선택 처리
+            choice = self.get_user_input("\n선택하세요 (1-5): ")
             
             if choice == "1":
+                clear_screen()
                 self.timer_menu()
             elif choice == "2":
+                clear_screen()
                 self.product_menu()
             elif choice == "3":
+                clear_screen()
                 self.settings_menu()
             elif choice == "4":
+                clear_screen()
                 self.help_menu()
             elif choice == "5":
                 self.app.exit()
             else:
-                self.menu_manager.show_message_and_wait("잘못된 선택입니다. 1-5 사이의 숫자를 입력하세요.")
+                self.show_message_and_wait("잘못된 선택입니다. 1-5 사이의 숫자를 입력하세요.")
                 
+    def timer_menu(self):
+        """타이머 메뉴 - 타이머 시작 관련 기능 제공"""
+        self.current_menu = "timer"
+        
+        while True:
+            self.display_menu_header("타이머 시작")
+            
+            # 타이머 시작 방법 선택 메뉴
+            print("1. 제품 목록에서 선택")
+            print("2. 카테고리별 제품 선택")
+            print("3. 즐겨찾기 제품에서 선택")
+            print("4. 최근 사용한 제품에서 선택")
+            print("0. 메인 메뉴로 돌아가기")
+            
+            choice = self.get_user_input("\n선택하세요 (0-4): ")
+            
+            if choice == "1":
+                clear_screen()
+                self.product_list_menu()
+            elif choice == "2":
+                clear_screen()
+                self.category_menu()
+            elif choice == "3":
+                clear_screen()
+                self.favorite_products_menu()
+            elif choice == "4":
+                clear_screen()
+                self.recent_products_menu()
+            elif choice == "0":
+                clear_screen()
+                break
+            else:
+                self.show_message_and_wait("잘못된 선택입니다. 0-4 사이의 숫자를 입력하세요.")
+    
+    def product_menu(self):
+        """제품 관리 메뉴 - 제품 관련 기능 제공"""
+        self.current_menu = "product"
+        
+        while True:
+            self.menu_manager.display_menu_header("제품 관리")
+            
+            print("1. 제품 목록 보기")
+            print("2. 카테고리별 제품 보기")
+            print("3. 즐겨찾기 제품 보기")
+            print("4. 최근 사용한 제품 보기")
+            print("0. 메인 메뉴로 돌아가기")
+            
+            choice = self.menu_manager.get_user_input("\n선택하세요 (0-4): ")
+            
+            if choice == "1":
+                self.product_list_menu()
+            elif choice == "2":
+                self.category_menu()
+            elif choice == "3":
+                self.favorite_products_menu()
+            elif choice == "4":
+                self.recent_products_menu()
+            elif choice == "0":
+                break
+            else:
+                self.menu_manager.show_message_and_wait("잘못된 선택입니다. 0-4 사이의 숫자를 입력하세요.")
+    
+    def help_menu(self):
+        """도움말 메뉴 - 앱 사용 안내"""
+        self.current_menu = "help"
+        
+        self.menu_manager.display_menu_header("도움말")
+        
+        help_text = """
+K-Food Timer 앱 사용 안내
+
+1. 타이머 시작
+   - 제품 목록에서 원하는 제품을 선택하여 타이머를 시작할 수 있습니다.
+   - 카테고리별로 제품을 찾아 타이머를 시작할 수 있습니다.
+   - 즐겨찾기나 최근 사용한 제품에서 빠르게 선택할 수 있습니다.
+
+2. 제품 관리
+   - 제품 목록을 확인하고 상세 정보를 볼 수 있습니다.
+   - 즐겨찾기 기능으로 자주 사용하는 제품을 관리할 수 있습니다.
+
+3. 설정
+   - 소리 알림, 테마, 언어 등의 앱 설정을 변경할 수 있습니다.
+
+4. 팁
+   - 타이머가 실행 중일 때는 메인 메뉴에서 상태를 확인할 수 있습니다.
+   - 제품 상세 정보에서 조리 방법을 확인할 수 있습니다.
+"""
+        print(help_text)
+        
+        self.menu_manager.show_message_and_wait("메인 메뉴로 돌아가려면 Enter 키를 누르세요...")
+    
     def display_product_list(self, products):
         """제품 목록 표시 - 제네레이터 패턴 적용
         
@@ -305,6 +412,7 @@ class UIManager:
             if selected_idx == -1:
                 break
             elif selected_idx is not None:
+                # 화면 지우고 제품 상세 메뉴로 이동
                 self.product_detail_menu(products[selected_idx])
     
     @lru_cache(maxsize=16)       
@@ -345,6 +453,8 @@ class UIManager:
             if selected_idx == -1:
                 break
             elif selected_idx is not None:
+                # 화면 지우고 카테고리별 제품 메뉴로 이동
+                clear_screen()
                 self.category_products_menu(categories[selected_idx])
                 
     def category_products_menu(self, category):
@@ -557,25 +667,10 @@ class UIManager:
         # 최근 제품 캐시 무효화
         self.get_recent_products.cache_clear()
         
-        # 타이머 완료 시 호출될 콜백 함수 정의
-        def timer_callback(timer):
-            """타이머 완료 시 호출되는 콜백 함수
-            
-            Args:
-                timer: 완료된 타이머 객체
-            """
-            # 소리 알림 설정이 활성화된 경우 소리 재생
-            if self.app.settings_manager.get_setting("sound_enabled"):
-                play_sound()
-            
-            # 타이머 완료 메시지 출력    
-            print(f"\n[알림] {product.name} 타이머가 완료되었습니다!")
-        
         # 타이머 생성 및 시작
-        timer, timer_id = self.app.timer_manager.create_timer(
+        timer_id = self.app.timer_manager.create_timer(
             duration=product.cooking_time,
-            name=f"{product.name} 타이머",
-            callback=timer_callback
+            name=f"{product.name} 타이머"
         )
         
         # 타이머 활성화
