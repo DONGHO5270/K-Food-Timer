@@ -1,0 +1,11 @@
+{
+  "sound_enabled": true,
+  "notification_enabled": true,
+  "theme": "light",
+  "language": "ko",
+  "auto_start": false,
+  "timer_sound": "default",
+  "recent_products": [
+    "frozen003"
+  ]
+}

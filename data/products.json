@@ -1,0 +1,141 @@
+[
+  {
+    "id": "ramen001",
+    "name": "신라면",
+    "category": "라면",
+    "cooking_time": 180,
+    "description": "매운맛이 특징인 대표적인 한국 라면",
+    "image_path": "",
+    "instructions": [
+      "물 550ml를 냄비에 넣고 끓인다",
+      "면과 스프를 넣는다",
+      "3분간 더 끓인다",
+      "불을 끄고 그릇에 담아 먹는다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "rice001",
+    "name": "햇반",
+    "category": "즉석밥",
+    "cooking_time": 90,
+    "description": "전자레인지에 데워 먹는 즉석밥",
+    "image_path": "",
+    "instructions": [
+      "포장의 한쪽 모서리를 1~2cm 개봉한다",
+      "전자레인지에 1분 30초간 가열한다",
+      "잘 섞어서 먹는다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "frozen001",
+    "name": "비비고 만두",
+    "category": "냉동식품",
+    "cooking_time": 300,
+    "description": "맛있는 냉동 만두",
+    "image_path": "",
+    "instructions": [
+      "팬에 기름을 두른다",
+      "만두를 넣고 중불에서 2분간 굽는다",
+      "물 1/4컵을 붓고 뚜껑을 덮는다",
+      "3분간 더 익힌다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "ramen002",
+    "name": "진라면",
+    "category": "라면",
+    "cooking_time": 180,
+    "description": "순한맛이 특징인 한국 라면",
+    "image_path": "",
+    "instructions": [
+      "물 550ml를 냄비에 넣고 끓인다",
+      "면과 스프를 넣는다",
+      "3분간 더 끓인다",
+      "불을 끄고 그릇에 담아 먹는다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "ramen003",
+    "name": "참깨라면",
+    "category": "라면",
+    "cooking_time": 180,
+    "description": "참깨 향이 강한 한국 라면",
+    "image_path": "",
+    "instructions": [
+      "물 550ml를 냄비에 넣고 끓인다",
+      "면과 스프를 넣는다",
+      "3분간 더 끓인다",
+      "불을 끄고 그릇에 담아 먹는다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "frozen002",
+    "name": "해물파전",
+    "category": "냉동식품",
+    "cooking_time": 480,
+    "description": "전자레인지에 데워 먹는 해물파전",
+    "image_path": "",
+    "instructions": [
+      "포장을 제거한다",
+      "전자레인지에 4분간 가열한다",
+      "뒤집어서 4분간 더 가열한다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "frozen003",
+    "name": "김치볶음밥",
+    "category": "냉동식품",
+    "cooking_time": 360,
+    "description": "전자레인지에 데워 먹는 김치볶음밥",
+    "image_path": "",
+    "instructions": [
+      "포장을 뜯고 비닐랩을 벗긴다",
+      "전자레인지에 6분간 가열한다",
+      "잘 저어서 먹는다"
+    ],
+    "favorite": false,
+    "last_used": "2025-03-13T07:33:43.730380"
+  },
+  {
+    "id": "rice002",
+    "name": "곤드레나물밥",
+    "category": "즉석밥",
+    "cooking_time": 120,
+    "description": "전자레인지에 데워 먹는 곤드레나물밥",
+    "image_path": "",
+    "instructions": [
+      "포장의 한쪽 모서리를 1~2cm 개봉한다",
+      "전자레인지에 2분간 가열한다",
+      "잘 섞어서 먹는다"
+    ],
+    "favorite": false,
+    "last_used": null
+  },
+  {
+    "id": "rice003",
+    "name": "흑미밥",
+    "category": "즉석밥",
+    "cooking_time": 90,
+    "description": "전자레인지에 데워 먹는 흑미밥",
+    "image_path": "",
+    "instructions": [
+      "포장의 한쪽 모서리를 1~2cm 개봉한다",
+      "전자레인지에 1분 30초간 가열한다",
+      "잘 섞어서 먹는다"
+    ],
+    "favorite": false,
+    "last_used": null
+  }
+]
