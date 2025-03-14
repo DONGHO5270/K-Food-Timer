@@ -1,10 +1,8 @@
 {
   "sound_enabled": true,
-  "notification_enabled": true,
-  "theme": "light",
+  "desktop_notification": true,
   "language": "ko",
-  "auto_start": false,
-  "timer_sound": "default",
+  "theme": "light",
   "recent_products": [
     "ramen003",
     "frozen003",

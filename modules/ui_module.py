@@ -16,11 +16,17 @@ import platform
 from datetime import datetime
 from functools import lru_cache  # 캐싱을 위한 데코레이터 추가
 from itertools import islice  # 제네레이터 처리용
+import msvcrt
+import logging
+from typing import List, Dict, Any, Optional, Callable
 
 # 분리된 모듈 import
 from modules.utils import clear_screen, format_time, format_datetime, get_current_datetime
 from modules.menu_module import MenuManager
 from modules.notification_module import NotificationManager
+from .product_module import Product
+
+logger = logging.getLogger(__name__)
 
 # 운영체제별 호환성 처리를 위한 소리 재생 함수 정의
 if platform.system() == "Windows":
@@ -72,795 +78,567 @@ CLEAR_COMMAND = "cls" if CURRENT_OS == "Windows" else "clear"
 BACK_TO_MAIN_MSG = "엔터 키를 눌러 메인 메뉴로 돌아가세요..."
 MENU_BACK_TO_CATEGORY_MSG = "엔터 키를 눌러 카테고리 메뉴로 돌아가세요..."
 
-
-class UIManager:
-    """사용자 인터페이스 관리 클래스
+class UI:
+    """사용자 인터페이스 클래스
     
-    이 클래스는 K-Food Timer 애플리케이션의 콘솔 기반 사용자 인터페이스를 관리합니다.
-    메뉴 시스템, 사용자 입력 처리, 타이머 표시 및 관리 기능을 제공합니다.
+    K-Food 타이머 앱의 모든 UI 기능을 담당합니다.
     """
     
     def __init__(self, app):
-        """UI 관리자 초기화
+        """UI 초기화
         
         Args:
-            app: 메인 애플리케이션 객체 (앱의 모든 관리자 모듈에 접근 가능)
+            app: 앱 메인 객체 (KFoodTimer 인스턴스)
         """
         self.app = app
-        self.current_menu = "main"  # 현재 활성화된 메뉴 상태
-        self.timer_display_thread = None  # 타이머 표시용 스레드
+        self.width = 60  # UI 너비
+        # 컨텍스트 관리를 위한 변수 추가
+        self.navigation_stack = []  # 내비게이션 스택
+        self.current_context = {}  # 현재 컨텍스트 정보
         
-        # 메뉴 관리자 초기화
-        self.menu_manager = MenuManager(app)
-        self.menu_manager.set_ui_manager(self)
+    def push_context(self, menu_name, context_data=None):
+        """컨텍스트를 스택에 추가
         
-        # 알림 관리자 초기화
-        self.notification_manager = NotificationManager(app.settings_manager)
+        Args:
+            menu_name (str): 현재 메뉴 이름
+            context_data (dict, optional): 컨텍스트 데이터
+        """
+        context = {
+            'menu': menu_name,
+            'data': context_data or {},
+            'timestamp': datetime.now()
+        }
+        self.navigation_stack.append(context)
+        self.current_context = context
         
-    def start(self):
-        """UI 시작 - 환영 메시지 표시하고 메인 메뉴 진입"""
-        self.show_welcome_message()
-        self.main_menu()
+    def pop_context(self):
+        """이전 컨텍스트로 복원
         
-    def show_welcome_message(self):
-        """환영 메시지 표시 - 앱 타이틀과 현재 시간을 포함하는 시작 화면"""
-        clear_screen()
-        print("\n" + "="*50)
-        print("\n      K-Food Timer - 한국 간편식품 타이머 앱      ")
-        print("\n" + "="*50)
-        print(f"\n현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("\n간편식품 조리를 위한 편리한 타이머 앱입니다.")
-        print("다양한 한국 간편식품의 정확한 조리 시간을 관리하세요.\n")
+        Returns:
+            dict: 이전 컨텍스트 데이터 또는 None
+        """
+        if len(self.navigation_stack) > 1:
+            self.navigation_stack.pop()  # 현재 컨텍스트 제거
+            self.current_context = self.navigation_stack[-1]  # 이전 컨텍스트로 설정
+            return self.current_context
+        return None
         
-    def clear_screen(self):
-        """화면 지우기 - 운영체제에 따라 적절한 명령어 사용"""
-        os.system(CLEAR_COMMAND)  # 미리 정의된 명령 사용
+    def display_breadcrumb(self):
+        """현재 메뉴 경로 표시"""
+        if self.navigation_stack:
+            breadcrumb = " > ".join([ctx['menu'] for ctx in self.navigation_stack])
+            print(f"\n경로: {breadcrumb}\n")
+        
+    def clear_screen(self) -> None:
+        """화면 지우기"""
+        os.system('cls' if os.name == 'nt' else 'clear')
+        
+    def display_header(self) -> None:
+        """헤더 표시"""
+        self.clear_screen()
+        print("=" * self.width)
+        print(f"{'K-FOOD TIMER':^{self.width}}")
+        print("=" * self.width)
+        
+        # 브레드크럼과 컨텍스트 정보 표시
+        if self.navigation_stack:
+            self.display_breadcrumb()
+            
+        # 현재 작업 중인 컨텍스트가 있으면 표시
+        if self.current_context and 'data' in self.current_context and self.current_context['data']:
+            context_data = self.current_context['data']
+            if 'product' in context_data:
+                product = context_data['product']
+                print(f"현재 작업 중: {product.get_localized_name()}")
+            if 'category' in context_data:
+                category = context_data['category']
+                print(f"현재 카테고리: {category}")
+            print("-" * self.width)
     
     def display_menu_header(self, title):
-        """메뉴 헤더 표시 - 화면을 지우고 메뉴 제목 표시
+        """메뉴 헤더 표시
         
         Args:
-            title (str): 표시할 메뉴 제목
+            title (str): 메뉴 제목
         """
-        clear_screen()  # utils 모듈의 함수 사용
-        print("\n" + "=" * 50)
-        print(f"{title:^50}")
-        print("=" * 50 + "\n")
-    
-    @staticmethod
-    @lru_cache(maxsize=128)
-    def format_cooking_time(seconds):
-        """요리 시간을 분과 초로 포맷팅
+        self.display_header()
+        print(f"{title:^{self.width}}")
+        print("-" * self.width + "\n")
         
-        Args:
-            seconds (int): 초 단위 시간
+    def main_menu(self) -> None:
+        """메인 메뉴 표시"""
+        # 새로운 탐색 시작 - 스택 초기화
+        self.navigation_stack = []
+        self.push_context("메인 메뉴")
+        
+        self.display_menu_header("메인 메뉴")
+        
+        menu_items = [
+            "1. 카테고리별 제품 선택",
+            "2. 즐겨찾기 제품",
+            "3. 최근 사용 제품",
+            "4. 제품 검색",
+            "5. 설정",
+            "0. 종료"
+        ]
+        
+        for item in menu_items:
+            print(item)
             
-        Returns:
-            str: '분m 초s' 형태의 포맷된 문자열
-        """
-        minutes, secs = divmod(seconds, 60)
-        return f"{minutes}분 {secs}초"
-    
-    def display_product_info(self, product, include_index=False, index=None):
-        """제품 정보 출력 - 제품 정보를 포맷에 맞게 표시
+        print("\n선택: ", end="")
+        choice = input().strip()
         
-        Args:
-            product: 표시할 제품 객체
-            include_index (bool): 인덱스 표시 여부
-            index (int, optional): 표시할 인덱스 번호
-        """
-        # 즐겨찾기 여부에 따라 별표 표시
-        favorite_symbol = "★" if product.favorite else " "
-        
-        # 인덱스 포함 여부에 따라 접두사 설정
-        prefix = f"{index}. " if include_index else ""
-        
-        # 제품 기본 정보 표시 (포맷팅 함수 사용)
-        formatted_time = self.format_cooking_time(product.cooking_time)
-        print(f"{prefix}[{favorite_symbol}] {product.name} ({product.category}, {formatted_time})")
-        
-        # 마지막 사용 시간이 있다면 표시
-        if hasattr(product, 'last_used') and product.last_used:
-            print(f"   마지막 사용: {product.last_used.strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    @staticmethod
-    def get_user_input(prompt="선택하세요: "):
-        """사용자 입력 받기 - 프롬프트 표시 후 입력값 반환
-        
-        Args:
-            prompt (str): 표시할 프롬프트 메시지
+        if choice == "1":
+            self.category_menu()
+        elif choice == "2":
+            self.favorite_products_menu()
+        elif choice == "3":
+            self.recent_products_menu()
+        elif choice == "4":
+            self.search_products()
+        elif choice == "5":
+            self.settings_menu()
+        elif choice == "0":
+            self.exit_app()
+        else:
+            print("\n잘못된 선택입니다. 다시 시도하세요.")
+            time.sleep(1.5)
+            self.main_menu()
             
-        Returns:
-            str: 사용자 입력값 (공백 제거됨)
-        """
-        return input(f"\n{prompt}").strip()
-    
-    @staticmethod
-    def show_message_and_wait(message="잘못된 선택입니다."):
-        """메시지 표시 후 사용자 입력 대기
+    def category_menu(self) -> None:
+        """카테고리 메뉴 표시"""
+        self.push_context("카테고리 선택")
+        self.display_menu_header("카테고리 선택")
         
-        Args:
-            message (str): 표시할 메시지
-        """
-        input(f"\n{message} 엔터 키를 눌러 계속하세요...")
-    
-    def select_item_from_menu(self, items, prompt="선택하세요 (번호): ", empty_message="항목이 없습니다.", back_menu_name="이전 메뉴"):
-        """메뉴 목록에서 항목 선택 처리
+        categories = self.app.get_categories()
         
-        Args:
-            items (list): 선택 가능한 항목 목록
-            prompt (str): 선택 프롬프트 메시지
-            empty_message (str): 항목이 없을 때 표시할 메시지
-            back_menu_name (str): 돌아갈 메뉴 이름
+        for i, category in enumerate(categories, 1):
+            print(f"{i}. {category}")
             
-        Returns:
-            int: 선택한 항목 인덱스 또는 -1 (돌아가기) 또는 None (잘못된 선택)
-        """
-        # 항목이 없는 경우 처리
-        if not items:
-            print(f"\n{empty_message}")
-            self.show_message_and_wait(f"엔터 키를 눌러 {back_menu_name}로 돌아가세요...")
-            return -1
+        print("\n0. 이전 메뉴")
+        print("\n선택: ", end="")
+        choice = input().strip()
         
-        # 돌아가기 옵션 표시    
-        print(f"\n0. {back_menu_name}로 돌아가기")
-        
-        # 사용자 선택 받기
-        choice = self.get_user_input(prompt)
-        
-        # 돌아가기 선택
         if choice == "0":
-            return -1
-        
-        # 숫자 입력 처리
+            self.pop_context()  # 컨텍스트 제거
+            self.main_menu()
+            return
+            
         try:
-            selected_idx = int(choice) - 1
-            if 0 <= selected_idx < len(items):
-                return selected_idx
+            index = int(choice) - 1
+            if 0 <= index < len(categories):
+                self.product_list_menu(categories[index])
             else:
-                # 유효 범위 벗어남
-                self.show_message_and_wait()
-                return None
+                print("\n잘못된 선택입니다.")
+                time.sleep(1.5)
+                self.category_menu()
         except ValueError:
-            # 숫자가 아닌 입력
-            self.show_message_and_wait("숫자를 입력해주세요.")
-            return None
-    
-    def get_active_timers_info(self):
-        """활성화된 타이머 정보 문자열 생성
-        
-        Returns:
-            str: 활성 타이머 정보를 포함한 문자열, 없으면 빈 문자열
-        """
-        active_timers = self.app.timer_manager.get_active_timers()
-        if not active_timers:
-            return ""
+            print("\n숫자를 입력하세요.")
+            time.sleep(1.5)
+            self.category_menu()
             
-        # 리스트 컴프리헨션 활용
-        timer_info = ["\n=== 활성 타이머 ==="] + [
-            f"- {timer.name}: {timer.get_formatted_time()} {'[일시정지]' if timer.is_paused else '[실행중]'}"
-            for _, timer in active_timers.items()
-        ]
-        
-        return "\n".join(timer_info) + "\n"
-            
-    def main_menu(self):
-        """메인 메뉴 표시 및 처리"""
-        self.current_menu = "main"
-        
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("메인 메뉴")
-            
-            # 활성 타이머 정보 표시 (있을 경우)
-            active_timers_info = self.get_active_timers_info()
-            if active_timers_info:
-                print(active_timers_info)
-            
-            # 메인 메뉴 옵션 표시
-            options = [
-                "타이머 시작",
-                "제품 관리",
-                "설정",
-                "도움말",
-                "종료"
-            ]
-            
-            for i, option in enumerate(options, 1):
-                print(f"{i}. {option}")
-                
-            # 사용자 선택 처리
-            choice = self.get_user_input("\n선택하세요 (1-5): ")
-            
-            if choice == "1":
-                clear_screen()
-                self.timer_menu()
-            elif choice == "2":
-                clear_screen()
-                self.product_menu()
-            elif choice == "3":
-                clear_screen()
-                self.settings_menu()
-            elif choice == "4":
-                clear_screen()
-                self.help_menu()
-            elif choice == "5":
-                self.app.exit()
-            else:
-                self.show_message_and_wait("잘못된 선택입니다. 1-5 사이의 숫자를 입력하세요.")
-                
-    def timer_menu(self):
-        """타이머 메뉴 - 타이머 시작 관련 기능 제공"""
-        self.current_menu = "timer"
-        
-        while True:
-            self.display_menu_header("타이머 시작")
-            
-            # 타이머 시작 방법 선택 메뉴
-            print("1. 제품 목록에서 선택")
-            print("2. 카테고리별 제품 선택")
-            print("3. 즐겨찾기 제품에서 선택")
-            print("4. 최근 사용한 제품에서 선택")
-            print("0. 메인 메뉴로 돌아가기")
-            
-            choice = self.get_user_input("\n선택하세요 (0-4): ")
-            
-            if choice == "1":
-                clear_screen()
-                self.product_list_menu()
-            elif choice == "2":
-                clear_screen()
-                self.category_menu()
-            elif choice == "3":
-                clear_screen()
-                self.favorite_products_menu()
-            elif choice == "4":
-                clear_screen()
-                self.recent_products_menu()
-            elif choice == "0":
-                clear_screen()
-                break
-            else:
-                self.show_message_and_wait("잘못된 선택입니다. 0-4 사이의 숫자를 입력하세요.")
-    
-    def product_menu(self):
-        """제품 관리 메뉴 - 제품 관련 기능 제공"""
-        self.current_menu = "product"
-        
-        while True:
-            self.menu_manager.display_menu_header("제품 관리")
-            
-            print("1. 제품 목록 보기")
-            print("2. 카테고리별 제품 보기")
-            print("3. 즐겨찾기 제품 보기")
-            print("4. 최근 사용한 제품 보기")
-            print("0. 메인 메뉴로 돌아가기")
-            
-            choice = self.menu_manager.get_user_input("\n선택하세요 (0-4): ")
-            
-            if choice == "1":
-                self.product_list_menu()
-            elif choice == "2":
-                self.category_menu()
-            elif choice == "3":
-                self.favorite_products_menu()
-            elif choice == "4":
-                self.recent_products_menu()
-            elif choice == "0":
-                break
-            else:
-                self.menu_manager.show_message_and_wait("잘못된 선택입니다. 0-4 사이의 숫자를 입력하세요.")
-    
-    def help_menu(self):
-        """도움말 메뉴 - 앱 사용 안내"""
-        self.current_menu = "help"
-        
-        self.menu_manager.display_menu_header("도움말")
-        
-        help_text = """
-K-Food Timer 앱 사용 안내
-
-1. 타이머 시작
-   - 제품 목록에서 원하는 제품을 선택하여 타이머를 시작할 수 있습니다.
-   - 카테고리별로 제품을 찾아 타이머를 시작할 수 있습니다.
-   - 즐겨찾기나 최근 사용한 제품에서 빠르게 선택할 수 있습니다.
-
-2. 제품 관리
-   - 제품 목록을 확인하고 상세 정보를 볼 수 있습니다.
-   - 즐겨찾기 기능으로 자주 사용하는 제품을 관리할 수 있습니다.
-
-3. 설정
-   - 소리 알림, 테마, 언어 등의 앱 설정을 변경할 수 있습니다.
-
-4. 팁
-   - 타이머가 실행 중일 때는 메인 메뉴에서 상태를 확인할 수 있습니다.
-   - 제품 상세 정보에서 조리 방법을 확인할 수 있습니다.
-"""
-        print(help_text)
-        
-        self.menu_manager.show_message_and_wait("메인 메뉴로 돌아가려면 Enter 키를 누르세요...")
-    
-    def display_product_list(self, products):
-        """제품 목록 표시 - 제네레이터 패턴 적용
+    def product_list_menu(self, category: str) -> None:
+        """카테고리별 제품 목록 메뉴 표시
         
         Args:
-            products (list): 표시할 제품 목록
+            category (str): 표시할 카테고리
         """
-        for i, product in enumerate(products, 1):
-            self.display_product_info(product, True, i)
-                
-    def product_list_menu(self):
-        """제품 목록 메뉴 - 모든 등록된 제품 표시 및 선택 처리"""
-        self.current_menu = "product_list"
+        self.push_context("제품 목록", {'category': category})
+        self.display_menu_header(f"{category} 제품 목록")
         
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("제품 목록")
-            
-            # 전체 제품 목록 가져오기
-            products = self.app.product_manager.get_all_products()
-            if not products:
-                print("\n등록된 제품이 없습니다.")
-                self.show_message_and_wait(BACK_TO_MAIN_MSG)
-                break
-                
-            # 제품 목록 표시 (별도 함수 사용)
-            self.display_product_list(products)
-                
-            # 제품 선택 처리
-            selected_idx = self.select_item_from_menu(products, "제품을 선택하세요 (번호): ", back_menu_name="메인 메뉴")
-            if selected_idx == -1:
-                break
-            elif selected_idx is not None:
-                # 화면 지우고 제품 상세 메뉴로 이동
-                self.product_detail_menu(products[selected_idx])
-    
-    @lru_cache(maxsize=16)       
-    def get_categories(self):
-        """카테고리 목록 가져오기 (캐싱 적용)
-        
-        Returns:
-            list: 카테고리 목록
-        """
-        return self.app.product_manager.get_categories()
-                
-    def category_menu(self):
-        """카테고리 메뉴 - 제품 카테고리 목록 표시 및 선택 처리"""
-        self.current_menu = "category"
-        
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("카테고리 목록")
-            
-            # 카테고리 목록 가져오기 (캐싱된 메서드 사용)
-            categories = self.get_categories()
-            if not categories:
-                print("\n등록된 카테고리가 없습니다.")
-                self.show_message_and_wait(BACK_TO_MAIN_MSG)
-                break
-                
-            # 카테고리 목록 표시 (리스트 컴프리헨션 활용)
-            [print(f"{i}. {category}") for i, category in enumerate(categories, 1)]
-                
-            # 카테고리 선택 처리
-            selected_idx = self.select_item_from_menu(
-                categories, 
-                "카테고리를 선택하세요 (번호): ", 
-                "등록된 카테고리가 없습니다.", 
-                "메인 메뉴"
-            )
-            
-            if selected_idx == -1:
-                break
-            elif selected_idx is not None:
-                # 화면 지우고 카테고리별 제품 메뉴로 이동
-                clear_screen()
-                self.category_products_menu(categories[selected_idx])
-                
-    def category_products_menu(self, category):
-        """카테고리별 제품 목록 메뉴 - 특정 카테고리의 제품 표시 및 선택 처리
-        
-        Args:
-            category (str): 제품 카테고리 이름
-        """
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header(f"{category} 제품 목록")
-            
-            # 해당 카테고리의 제품 목록 가져오기
-            category_products = self.app.product_manager.get_products_by_category(category)
-            if not category_products:
-                print(f"\n{category} 카테고리에 등록된 제품이 없습니다.")
-                self.show_message_and_wait(MENU_BACK_TO_CATEGORY_MSG)
-                break
-                
-            # 제품 목록 표시 (별도 함수 사용)
-            self.display_product_list(category_products)
-                
-            # 제품 선택 처리
-            selected_idx = self.select_item_from_menu(
-                category_products, 
-                "제품을 선택하세요 (번호): ", 
-                back_menu_name="카테고리 메뉴"
-            )
-            
-            if selected_idx == -1:
-                break
-            elif selected_idx is not None:
-                self.product_detail_menu(category_products[selected_idx])
-                
-    @lru_cache(maxsize=1)            
-    def get_favorite_products(self):
-        """즐겨찾기 제품 목록 가져오기 (캐싱 적용)
-        
-        Returns:
-            list: 즐겨찾기 제품 목록
-        """
-        return self.app.product_manager.get_favorite_products()
-                
-    def favorite_products_menu(self):
-        """즐겨찾기 제품 목록 메뉴 - 즐겨찾기된 제품 표시 및 선택 처리"""
-        self.current_menu = "favorites"
-        
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("즐겨찾기 제품 목록")
-            
-            # 즐겨찾기 제품 목록 가져오기 (캐싱된 메서드 사용)
-            favorite_products = self.get_favorite_products()
-            # 캐시 무효화 (제품 상태가 변경될 수 있으므로)
-            self.get_favorite_products.cache_clear()
-            
-            if not favorite_products:
-                print("\n즐겨찾기한 제품이 없습니다.")
-                self.show_message_and_wait(BACK_TO_MAIN_MSG)
-                break
-                
-            # 제품 목록 표시 (별도 함수 사용)
-            self.display_product_list(favorite_products)
-                
-            # 제품 선택 처리
-            selected_idx = self.select_item_from_menu(
-                favorite_products, 
-                "제품을 선택하세요 (번호): ", 
-                back_menu_name="메인 메뉴"
-            )
-            
-            if selected_idx == -1:
-                break
-            elif selected_idx is not None:
-                self.product_detail_menu(favorite_products[selected_idx])
-    
-    @lru_cache(maxsize=1)
-    def get_recent_products(self):
-        """최근 사용 제품 목록 가져오기 (캐싱 적용)
-        
-        Returns:
-            list: 최근 사용 제품 목록
-        """
-        return self.app.product_manager.get_recent_products()
-                
-    def recent_products_menu(self):
-        """최근 사용 제품 목록 메뉴 - 최근 사용한 제품 표시 및 선택 처리"""
-        self.current_menu = "recent"
-        
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("최근 사용한 제품 목록")
-            
-            # 최근 사용 제품 목록 가져오기 (캐싱된 메서드 사용)
-            recent_products = self.get_recent_products()
-            # 캐시 무효화 (목록이 변경될 수 있으므로)
-            self.get_recent_products.cache_clear()
-            
-            if not recent_products:
-                print("\n최근 사용한 제품이 없습니다.")
-                self.show_message_and_wait(BACK_TO_MAIN_MSG)
-                break
-                
-            # 제품 목록 표시 (별도 함수 사용)
-            self.display_product_list(recent_products)
-                
-            # 제품 선택 처리
-            selected_idx = self.select_item_from_menu(
-                recent_products, 
-                "제품을 선택하세요 (번호): ", 
-                back_menu_name="메인 메뉴"
-            )
-            
-            if selected_idx == -1:
-                break
-            elif selected_idx is not None:
-                self.product_detail_menu(recent_products[selected_idx])
-    
-    @staticmethod
-    @lru_cache(maxsize=32)
-    def format_product_detail(product):
-        """제품 상세 정보 문자열 생성
-        
-        Args:
-            product: 대상 제품 객체
-            
-        Returns:
-            str: 포맷된 제품 상세 정보
-        """
-        favorite_symbol = "★" if product.favorite else "☆"
-        
-        minutes, seconds = divmod(product.cooking_time, 60)
-        formatted_time = f"{minutes}분 {seconds}초"
-        
-        # 리스트 컴프리헨션으로 변경
-        details = [
-            f"\n- 제품명: {product.name}",
-            f"- 카테고리: {product.category}",
-            f"- 조리 시간: {formatted_time}",
-            f"- 즐겨찾기: {favorite_symbol}"
-        ]
-        
-        if product.description:
-            details.append(f"- 설명: {product.description}")
-            
-        if product.instructions:
-            details.append("\n[조리 방법]")
-            # 리스트 컴프리헨션 활용
-            details.extend(f"{i}. {instruction}" for i, instruction in enumerate(product.instructions, 1))
-                
-        return "\n".join(details)
-                
-    def product_detail_menu(self, product):
-        """제품 상세 정보 메뉴 - 선택한 제품의 상세 정보 및 기능 제공
-        
-        Args:
-            product: 표시할 제품 객체
-        """
-        self.current_menu = "product_detail"
-        
-        # 캐시를 이 제품에 대해 무효화 (변경될 수 있으므로)
-        self.format_product_detail.cache_clear()
-        
-        # 메뉴 옵션 사전 생성
-        menu_text = "\n===== 기능 =====\n1. 타이머 시작\n%s\n0. 이전 메뉴로 돌아가기"
-        
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header(f"{product.name} 상세 정보")
-            
-            # 제품 상세 정보 표시
-            print(self.format_product_detail(product))
-            
-            # 제품 기능 메뉴 표시 (포맷팅 활용)
-            print(menu_text % f"2. {'즐겨찾기 해제' if product.favorite else '즐겨찾기 추가'}")
-            
-            # 사용자 선택 처리
-            choice = self.get_user_input()
-            
-            if choice == "1":
-                # 타이머 시작
-                self.start_product_timer(product)
-            elif choice == "2":
-                # 즐겨찾기 상태 토글
-                product.toggle_favorite()
-                self.app.product_manager.save_products()
-                # 즐겨찾기가 변경되었으므로 캐시 무효화
-                self.format_product_detail.cache_clear()
-                self.get_favorite_products.cache_clear()
-            elif choice == "0":
-                # 이전 메뉴로 돌아가기
-                break
-            else:
-                self.show_message_and_wait()
-                
-    def start_product_timer(self, product):
-        """제품 타이머 시작 - 선택한 제품의 타이머 생성 및 시작
-        
-        Args:
-            product: 타이머를 시작할 제품 객체
-        """
-        # 제품 사용 기록 업데이트
-        product.mark_as_used()
-        self.app.product_manager.save_products()
-        
-        # 최근 사용 제품 목록에 추가
-        self.app.settings_manager.add_recent_product(product.id)
-        self.app.settings_manager.save_settings()
-        
-        # 최근 제품 캐시 무효화
-        self.get_recent_products.cache_clear()
-        
-        # 타이머 생성 및 시작
-        timer_id = self.app.timer_manager.create_timer(
-            duration=product.cooking_time,
-            name=f"{product.name} 타이머"
-        )
-        
-        # 타이머 활성화
-        self.app.timer_manager.start_timer(timer_id)
-        
-        # 시작 메시지 표시
-        self.show_message_and_wait(f"{product.name} 타이머가 시작되었습니다.")
-        
-    def timer_management_menu(self):
-        """타이머 관리 메뉴 - 활성화된 타이머 목록 및 관리 기능 제공"""
-        self.current_menu = "timer"
-        
-        # 타이머 관리 메뉴 옵션
-        timer_menu_text = "\n===== 기능 =====\n1. 타이머 일시정지/재개\n2. 타이머 정지\n0. 메인 메뉴로 돌아가기"
-        
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("타이머 관리")
-            
-            # 활성 타이머 목록 가져오기
-            active_timers = self.app.timer_manager.get_active_timers()
-            if not active_timers:
-                print("\n현재 실행 중인 타이머가 없습니다.")
-                self.show_message_and_wait(BACK_TO_MAIN_MSG)
-                break
-                
-            # 활성 타이머 목록 표시 (리스트 컴프리헨션 적용)
-            timer_ids = list(active_timers.keys())
-            [
-                print(f"{i}. {active_timers[timer_id].name} - {active_timers[timer_id].get_formatted_time()} {'[일시정지]' if active_timers[timer_id].is_paused else '[실행중]'}")
-                for i, timer_id in enumerate(timer_ids, 1)
-            ]
-                
-            # 타이머 관리 기능 메뉴 표시
-            print(timer_menu_text)
-            
-            # 사용자 선택 처리
-            choice = self.get_user_input()
-            
+        products = self.app.get_products_by_category(category)
+        if not products:
+            print("이 카테고리에 제품이 없습니다.")
+            print("\n0. 이전 메뉴")
+            choice = input("\n선택: ").strip()
             if choice == "0":
-                # 메인 메뉴로 돌아가기
-                break
-                
-            if choice in ["1", "2"]:
-                # 타이머 번호 선택 처리
-                timer_input = self.get_user_input("타이머 번호를 선택하세요: ")
-                
-                try:
-                    # 타이머 인덱스 계산
-                    timer_idx = int(timer_input) - 1
-                    
-                    # 유효한 타이머 인덱스인지 확인
-                    if 0 <= timer_idx < len(timer_ids):
-                        timer_id = timer_ids[timer_idx]
-                        timer = active_timers[timer_id]
-                        
-                        if choice == "1":
-                            # 타이머 일시정지/재개
-                            self.toggle_timer_pause_state(timer_id, timer)
-                                
-                        elif choice == "2":
-                            # 타이머 정지
-                            self.app.timer_manager.stop_timer(timer_id)
-                            self.show_message_and_wait(f"{timer.name}가 정지되었습니다.")
-                            
-                    else:
-                        # 유효하지 않은 타이머 번호
-                        self.show_message_and_wait("잘못된 타이머 번호입니다.")
-                except ValueError:
-                    # 숫자가 아닌 입력
-                    self.show_message_and_wait("숫자를 입력해주세요.")
+                self.pop_context()
+                self.category_menu()
+            return
+            
+        for i, product in enumerate(products, 1):
+            name = product.get_localized_name()
+            favorite = "★" if product.favorite else " "
+            featured = "[특집]" if product.featured else ""
+            
+            time_min = product.cooking_time // 60
+            time_sec = product.cooking_time % 60
+            time_str = f"{time_min}분 {time_sec}초" if time_min > 0 else f"{time_sec}초"
+            
+            print(f"{i}. {favorite} {name} {featured} - {time_str}")
+            
+        print("\n0. 이전 메뉴")
+        
+        choice = input("\n선택: ").strip()
+        if choice == "0":
+            self.pop_context()
+            self.category_menu()
+            return
+            
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(products):
+                self.product_detail_menu(products[index])
             else:
-                # 유효하지 않은 메뉴 선택
-                self.show_message_and_wait()
-    
-    def toggle_timer_pause_state(self, timer_id, timer):
-        """타이머 일시정지/재개 상태 전환
+                print("\n잘못된 선택입니다.")
+                time.sleep(1.5)
+                self.product_list_menu(category)
+        except ValueError:
+            print("\n숫자를 입력하세요.")
+            time.sleep(1.5)
+            self.product_list_menu(category)
+            
+    def favorite_products_menu(self) -> None:
+        """즐겨찾기 제품 메뉴"""
+        self.push_context("즐겨찾기 제품")
+        self.display_menu_header("즐겨찾기 제품")
+        
+        favorites = self.app.get_favorite_products()
+        
+        if not favorites:
+            print("즐겨찾기한 제품이 없습니다.")
+            print("메인 메뉴에서 제품을 선택하고 즐겨찾기에 추가해 보세요.")
+            print("\n0. 이전 메뉴")
+            choice = input("\n선택: ").strip()
+            if choice == "0":
+                self.pop_context()
+                self.main_menu()
+            return
+            
+        # 목록 표시 및 선택 로직
+        for i, product in enumerate(favorites, 1):
+            print(f"{i}. {product.get_localized_name()} ({product.category})")
+            
+        print("\n0. 이전 메뉴")
+        choice = input("\n선택: ").strip()
+        
+        if choice == "0":
+            self.pop_context()
+            self.main_menu()
+            return
+            
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(favorites):
+                self.product_detail_menu(favorites[index])
+            else:
+                print("\n잘못된 선택입니다.")
+                time.sleep(1.5)
+                self.favorite_products_menu()
+        except ValueError:
+            print("\n숫자를 입력하세요.")
+            time.sleep(1.5)
+            self.favorite_products_menu()
+            
+    def recent_products_menu(self) -> None:
+        """최근 사용 제품 메뉴"""
+        self.push_context("최근 사용 제품")
+        self.display_menu_header("최근 사용 제품")
+        
+        recents = self.app.get_recent_products()
+        
+        if not recents:
+            print("최근 사용한 제품이 없습니다.")
+            print("\n0. 이전 메뉴")
+            choice = input("\n선택: ").strip()
+            if choice == "0":
+                self.pop_context()
+                self.main_menu()
+            return
+            
+        # 목록 표시 및 선택 로직
+        for i, product in enumerate(recents, 1):
+            name = product.get_localized_name()
+            favorite = "★" if product.favorite else " "
+            
+            time_min = product.cooking_time // 60
+            time_sec = product.cooking_time % 60
+            time_str = f"{time_min}분 {time_sec}초" if time_min > 0 else f"{time_sec}초"
+            
+            print(f"{i}. {favorite} {name} - {time_str}")
+            
+        print("\n0. 이전 메뉴")
+        choice = input("\n선택: ").strip()
+        
+        if choice == "0":
+            self.pop_context()
+            self.main_menu()
+            return
+            
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(recents):
+                self.product_detail_menu(recents[index])
+            else:
+                print("\n잘못된 선택입니다.")
+                time.sleep(1.5)
+                self.recent_products_menu()
+        except ValueError:
+            print("\n숫자를 입력하세요.")
+            time.sleep(1.5)
+            self.recent_products_menu()
+            
+    def search_products(self) -> None:
+        """제품 검색 메뉴"""
+        self.push_context("제품 검색")
+        self.display_menu_header("제품 검색")
+        
+        print("검색어를 입력하세요 (뒤로 가려면 빈 입력):")
+        query = input().strip()
+        
+        if not query:
+            self.pop_context()
+            self.main_menu()
+            return
+            
+        self.display_search_results(query)
+        
+    def display_search_results(self, query: str) -> None:
+        """검색 결과 표시
         
         Args:
-            timer_id (str): 타이머 ID
-            timer (Timer): 타이머 객체
+            query (str): 검색어
         """
-        if timer.is_paused:
-            # 일시정지 상태일 경우 재개
-            self.app.timer_manager.resume_timer(timer_id)
-            self.show_message_and_wait(f"{timer.name}가 재개되었습니다.")
-        else:
-            # 실행 중일 경우 일시정지
-            self.app.timer_manager.pause_timer(timer_id)
-            self.show_message_and_wait(f"{timer.name}가 일시정지되었습니다.")
-                
-    def settings_menu(self):
-        """설정 메뉴 - 앱 설정 변경 기능 제공"""
-        self.current_menu = "settings"
+        self.push_context("검색 결과", {'query': query})
+        self.display_menu_header(f"'{query}' 검색 결과")
         
-        # 설정 메뉴 옵션 텍스트 미리 정의
-        settings_menu_template = """1. 소리 알림: {sound}
-2. 알림: {notification}
-3. 테마: {theme}
-4. 언어: {language}
-5. 기본 설정으로 초기화
-0. 메인 메뉴로 돌아가기"""
+        results = self.app.search_products(query)
         
-        while True:
-            # 메뉴 헤더 표시
-            self.display_menu_header("설정")
+        if not results:
+            print(f"'{query}'에 대한 검색 결과가 없습니다.")
+            print("\n1. 다시 검색")
+            print("0. 이전 메뉴")
             
-            # 현재 설정값 가져오기
-            settings_mgr = self.app.settings_manager
-            
-            # 설정 메뉴 표시 (format 메서드 활용)
-            print(settings_menu_template.format(
-                sound="켜짐" if settings_mgr.get_setting("sound_enabled") else "꺼짐",
-                notification="켜짐" if settings_mgr.get_setting("notification_enabled") else "꺼짐",
-                theme=settings_mgr.get_setting("theme"),
-                language=settings_mgr.get_setting("language")
-            ))
-            
-            # 사용자 선택 처리
-            choice = self.get_user_input()
-            
+            choice = input("\n선택: ").strip()
             if choice == "1":
-                # 소리 알림 설정 토글
-                settings_mgr.set_setting("sound_enabled", not settings_mgr.get_setting("sound_enabled"))
-                settings_mgr.save_settings()
-                
-            elif choice == "2":
-                # 알림 설정 토글
-                settings_mgr.set_setting("notification_enabled", not settings_mgr.get_setting("notification_enabled"))
-                settings_mgr.save_settings()
-                
-            elif choice == "3":
-                # 테마 변경
-                current_theme = settings_mgr.get_setting("theme")
-                settings_mgr.set_setting("theme", "dark" if current_theme == "light" else "light")
-                settings_mgr.save_settings()
-                
-            elif choice == "4":
-                # 언어 설정 변경
-                self.change_language_setting()
-                    
-            elif choice == "5":
-                # 기본 설정으로 초기화
-                self.reset_settings_to_defaults()
-                    
-            elif choice == "0":
-                # 메인 메뉴로 돌아가기
-                break
-                
+                self.pop_context()  # 검색 결과 컨텍스트 제거
+                self.search_products()
             else:
-                # 유효하지 않은 메뉴 선택
-                self.show_message_and_wait()
-    
-    def change_language_setting(self):
-        """언어 설정 변경 - 지원되는 언어 코드 입력 처리"""
-        # 지원되는 언어 목록
-        supported_languages = {"ko": "한국어", "en": "영어"}
+                self.pop_context()  # 검색 결과 컨텍스트 제거
+                self.pop_context()  # 검색 메뉴 컨텍스트 제거
+                self.main_menu()
+            return
+            
+        # 검색 결과 표시 및 선택 로직
+        for i, product in enumerate(results, 1):
+            print(f"{i}. {product.get_localized_name()} ({product.category})")
+            
+        print("\n0. 이전 메뉴")
+        choice = input("\n선택: ").strip()
         
-        # 현재 선택된 언어 가져오기
-        current_lang = self.app.settings_manager.get_setting("language")
+        if choice == "0":
+            self.pop_context()  # 검색 결과 컨텍스트 제거
+            self.search_products()
+            return
+            
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(results):
+                self.product_detail_menu(results[index])
+            else:
+                print("\n잘못된 선택입니다.")
+                time.sleep(1.5)
+                self.display_search_results(query)
+        except ValueError:
+            print("\n숫자를 입력하세요.")
+            time.sleep(1.5)
+            self.display_search_results(query)
+            
+    def product_detail_menu(self, product: Product) -> None:
+        """제품 상세 정보 메뉴
         
-        # 언어 선택 메뉴 표시 (리스트 컴프리헨션 활용)
-        print("\n=== 언어 설정 ===")
-        [print(f"{code}: {name} {'[현재]' if code == current_lang else ''}") 
-         for code, name in supported_languages.items()]
+        Args:
+            product (Product): 제품 객체
+        """
+        self.push_context("제품 상세", {'product': product, 'category': product.category})
+        self.display_menu_header(f"{product.get_localized_name()} 상세 정보")
         
-        new_language = self.get_user_input("언어 코드를 입력하세요 (ko, en): ").lower()
+        print(f"이름: {product.get_localized_name()}")
+        print(f"카테고리: {product.category}")
+        print(f"조리 시간: {format_time(product.cooking_time)}")
+        print(f"즐겨찾기: {'예' if product.favorite else '아니오'}")
+        print(f"마지막 사용: {format_datetime(product.last_used) if product.last_used else '사용 기록 없음'}")
         
-        # 지원되는 언어 코드인지 확인
-        if new_language in supported_languages:
-            self.app.settings_manager.set_setting("language", new_language)
-            self.app.settings_manager.save_settings()
-        else:
-            self.show_message_and_wait("지원하지 않는 언어 코드입니다.")
-    
-    def reset_settings_to_defaults(self):
-        """설정을 기본값으로 초기화 - 확인 후 처리"""
-        # 사용자 확인 요청
-        confirm = self.get_user_input("모든 설정을 기본값으로 초기화하시겠습니까? (y/n): ").lower()
-        
-        if confirm == "y":
-            # 설정 초기화 및 저장
-            self.app.settings_manager.reset_to_defaults()
-            self.app.settings_manager.save_settings()
-            self.show_message_and_wait("설정이 초기화되었습니다.")
+        if product.cooking_instructions:
+            print("\n[조리 방법]")
+            for i, instruction in enumerate(product.cooking_instructions, 1):
+                print(f"{i}. {instruction}")
                 
-    def exit_app(self):
-        """앱 종료 - 종료 메시지 표시 후 앱 종료 처리"""
-        print("\n앱을 종료합니다...")
-        self.app.exit()
+        print("\n1. 타이머 시작")
+        print(f"2. {'즐겨찾기 해제' if product.favorite else '즐겨찾기 추가'}")
+        print("0. 이전 메뉴")
+        
+        choice = input("\n선택: ").strip()
+        if choice == "0":
+            # 이전 메뉴로 돌아가기
+            previous_menu = self.get_previous_menu_for_product(product)
+            previous_menu()
+        elif choice == "1":
+            self.start_product_timer(product)
+        elif choice == "2":
+            new_status = self.app.toggle_favorite(product.id)
+            status_text = "추가되었습니다" if new_status else "해제되었습니다"
+            print(f"\n즐겨찾기가 {status_text}.")
+            time.sleep(1.5)
+            self.product_detail_menu(product)
+        else:
+            print("\n잘못된 선택입니다.")
+            time.sleep(1.5)
+            self.product_detail_menu(product)
+            
+    def get_previous_menu_for_product(self, product: Product) -> Callable[[], None]:
+        """제품 객체에 맞는 이전 메뉴 함수 반환
+        
+        Args:
+            product (Product): 제품 객체
+            
+        Returns:
+            Callable: 이전 메뉴 함수
+        """
+        previous_context = self.pop_context()
+        
+        # 이전 컨텍스트 기반으로 적절한 메뉴로 이동
+        def go_to_previous_menu():
+            if previous_context and 'menu' in previous_context:
+                if previous_context['menu'] == "제품 목록":
+                    category = product.category
+                    if 'category' in previous_context['data']:
+                        category = previous_context['data']['category']
+                    self.product_list_menu(category)
+                elif previous_context['menu'] == "즐겨찾기 제품":
+                    self.favorite_products_menu()
+                elif previous_context['menu'] == "최근 사용 제품":
+                    self.recent_products_menu()
+                elif previous_context['menu'] == "검색 결과":
+                    # 검색 결과로 돌아가려면 이전 검색어 필요
+                    if 'query' in previous_context['data']:
+                        self.display_search_results(previous_context['data']['query'])
+                    else:
+                        self.main_menu()
+                else:
+                    self.main_menu()
+            else:
+                self.category_menu()
+        
+        return go_to_previous_menu
+        
+    def start_product_timer(self, product: Product) -> None:
+        """제품 타이머 시작
+        
+        Args:
+            product (Product): 타이머를 시작할 제품 객체
+        """
+        self.push_context("타이머", {'product': product})
+        name = product.get_localized_name()
+        self.display_menu_header(f"{name} 타이머")
+        
+        print(f"{name}의 타이머를 시작합니다.")
+        print(f"조리 시간: {product.cooking_time//60}분 {product.cooking_time%60}초")
+        print("\n타이머를 시작하려면 Enter 키를 누르세요. (취소: ESC)")
+        
+        key = msvcrt.getch()
+        if key == b'\r':  # Enter 키
+            success = self.app.start_product_timer(product.id)
+            if success:
+                print("\n타이머가 시작되었습니다!")
+                input("\n아무 키나 눌러 메인 메뉴로 돌아가기...")
+                self.main_menu()
+            else:
+                print("\n타이머 시작 중 오류가 발생했습니다.")
+                time.sleep(1.5)
+                self.product_detail_menu(product)
+        elif key == b'\x1b':  # ESC 키
+            self.product_detail_menu(product)
+        else:
+            print("\n잘못된 키입니다. 다시 시도하세요.")
+            time.sleep(1.5)
+            self.start_product_timer(product)
+            
+    def settings_menu(self) -> None:
+        """설정 메뉴 표시"""
+        self.display_menu_header("설정")
+        
+        print("1. 알림 설정")
+        print("2. 언어 설정")
+        print("0. 이전 메뉴")
+        
+        choice = input("\n선택: ").strip()
+        if choice == "0":
+            self.main_menu()
+        elif choice == "1":
+            self.notification_settings()
+        elif choice == "2":
+            self.language_settings()
+        else:
+            print("\n잘못된 선택입니다.")
+            time.sleep(1.5)
+            self.settings_menu()
+            
+    def notification_settings(self) -> None:
+        """알림 설정 메뉴"""
+        self.display_menu_header("알림 설정")
+        
+        settings = self.app.settings.get_settings()
+        
+        print(f"1. 소리 알림: {'켜짐' if settings.get('sound_enabled', True) else '꺼짐'}")
+        print(f"2. 데스크톱 알림: {'켜짐' if settings.get('desktop_notification', True) else '꺼짐'}")
+        print("0. 이전 메뉴")
+        
+        choice = input("\n선택: ").strip()
+        if choice == "0":
+            self.settings_menu()
+        elif choice == "1":
+            self.app.settings.toggle_setting('sound_enabled')
+            self.notification_settings()
+        elif choice == "2":
+            self.app.settings.toggle_setting('desktop_notification')
+            self.notification_settings()
+        else:
+            print("\n잘못된 선택입니다.")
+            time.sleep(1.5)
+            self.notification_settings()
+            
+    def language_settings(self) -> None:
+        """언어 설정 메뉴"""
+        self.display_menu_header("언어 설정")
+        
+        settings = self.app.settings.get_settings()
+        current_lang = settings.get('language', 'ko')
+        
+        print(f"1. 한국어 {'(현재)' if current_lang == 'ko' else ''}")
+        print(f"2. English {'(Current)' if current_lang == 'en' else ''}")
+        print("0. 이전 메뉴")
+        
+        choice = input("\n선택: ").strip()
+        if choice == "0":
+            self.settings_menu()
+        elif choice == "1":
+            self.app.settings.set_setting('language', 'ko')
+            self.language_settings()
+        elif choice == "2":
+            self.app.settings.set_setting('language', 'en')
+            self.language_settings()
+        else:
+            print("\n잘못된 선택입니다.")
+            time.sleep(1.5)
+            self.language_settings()
+            
+    def exit_app(self) -> None:
+        """앱 종료"""
+        self.clear_screen()
+        self.display_header()
+        
+        print("K-Food 타이머를 종료합니다.")
+        print("데이터를 저장하는 중...")
+        
+        if self.app.save_all_data():
+            print("데이터가 성공적으로 저장되었습니다.")
+        else:
+            print("데이터 저장 중 일부 오류가 발생했습니다.")
+            
+        print("\n이용해 주셔서 감사합니다!")
+        time.sleep(2)
+        sys.exit(0)
 
     def notify_timer_complete(self, timer):
         """타이머 완료 알림

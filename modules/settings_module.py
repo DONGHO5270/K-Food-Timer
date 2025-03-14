@@ -7,158 +7,170 @@
 
 import os
 import json
+import logging
+from typing import Dict, Any, Optional, List, Union
 
-class SettingsManager:
-    """설정 관리 클래스"""
+logger = logging.getLogger(__name__)
+
+class Settings:
+    """설정 관리 클래스
     
-    def __init__(self, settings_path="data/settings.json"):
-        """설정 관리자 초기화
+    앱의 환경설정, 사용자 기본 설정 등을 관리합니다.
+    """
+    
+    def __init__(self, settings_path: str = "data/settings.json"):
+        """Settings 초기화
         
         Args:
-            settings_path (str, optional): 설정 파일 경로
+            settings_path (str): 설정 파일 경로
         """
         self.settings_path = settings_path
-        self.settings = {
+        self.settings = self._get_default_settings()
+        self._ensure_data_dir()
+        
+    def _ensure_data_dir(self) -> None:
+        """데이터 디렉토리 존재 확인 및 생성"""
+        data_dir = os.path.dirname(self.settings_path)
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            logger.info(f"데이터 디렉토리 생성: {data_dir}")
+            
+    def _get_default_settings(self) -> Dict[str, Any]:
+        """기본 설정값 반환
+        
+        Returns:
+            dict: 기본 설정값
+        """
+        return {
             "sound_enabled": True,
-            "notification_enabled": True,
-            "theme": "light",
+            "desktop_notification": True,
             "language": "ko",
-            "auto_start": False,
-            "timer_sound": "default",
+            "theme": "light",
             "recent_products": []
         }
-    
-    def load_settings(self):
-        """설정 파일에서 설정 로드"""
+        
+    def load_settings(self) -> bool:
+        """설정 로드
+        
+        Returns:
+            bool: 로드 성공 여부
+        """
         if not os.path.exists(self.settings_path):
-            self._create_default_settings()
-            return
+            logger.info("설정 파일이 없습니다. 기본 설정을 사용합니다.")
+            self.save_settings()
+            return True
             
         try:
             with open(self.settings_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+                loaded_settings = json.load(f)
                 
-            # 기존 설정에 추가된 새 설정 항목이 있으면 병합
-            for key, value in data.items():
-                if key in self.settings:
-                    self.settings[key] = value
+            # 기본 설정을 기반으로 로드된 설정 업데이트
+            default_settings = self._get_default_settings()
+            for key, value in loaded_settings.items():
+                if key in default_settings:
+                    default_settings[key] = value
                     
-            print("설정을 로드했습니다.")
+            self.settings = default_settings
+            logger.info("설정을 로드했습니다.")
+            return True
         except Exception as e:
-            print(f"설정 로드 중 오류 발생: {e}")
-            self._create_default_settings()
-    
-    def save_settings(self):
-        """설정을 파일에 저장"""
-        try:
-            # 디렉토리가 없으면 생성
-            os.makedirs(os.path.dirname(self.settings_path), exist_ok=True)
+            logger.error(f"설정 로드 중 오류 발생: {e}")
+            return False
             
+    def save_settings(self) -> bool:
+        """설정 저장
+        
+        Returns:
+            bool: 저장 성공 여부
+        """
+        try:
             with open(self.settings_path, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, ensure_ascii=False, indent=2)
                 
-            print("설정을 저장했습니다.")
+            logger.info("설정을 저장했습니다.")
+            return True
         except Exception as e:
-            print(f"설정 저장 중 오류 발생: {e}")
-    
-    def _create_default_settings(self):
-        """기본 설정 파일 생성"""
-        try:
-            self.save_settings()
-            print("기본 설정 파일을 생성했습니다.")
-        except Exception as e:
-            print(f"기본 설정 파일 생성 중 오류 발생: {e}")
-    
-    def get_setting(self, key, default=None):
-        """설정 값 조회
+            logger.error(f"설정 저장 중 오류 발생: {e}")
+            return False
+            
+    def get_settings(self) -> Dict[str, Any]:
+        """모든 설정 조회
+        
+        Returns:
+            dict: 현재 설정값
+        """
+        return self.settings
+        
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """특정 설정 조회
         
         Args:
             key (str): 설정 키
-            default (any, optional): 설정이 없을 경우 반환할 기본값
+            default (Any, optional): 기본값
             
         Returns:
-            any: 설정 값 또는 기본값
+            Any: 설정값 또는 기본값
         """
         return self.settings.get(key, default)
-    
-    def set_setting(self, key, value):
-        """설정 값 변경
+        
+    def set_setting(self, key: str, value: Any) -> None:
+        """설정 변경
         
         Args:
             key (str): 설정 키
-            value (any): 설정 값
-            
-        Returns:
-            bool: 설정 변경 성공 여부
+            value (Any): 설정값
         """
-        if key in self.settings:
-            self.settings[key] = value
-            return True
-        return False
-    
-    def update_settings(self, settings_dict):
-        """여러 설정 값 한 번에 업데이트
+        self.settings[key] = value
+        logger.info(f"설정 변경: {key} = {value}")
+        
+    def toggle_setting(self, key: str) -> bool:
+        """불리언 설정 토글
         
         Args:
-            settings_dict (dict): 업데이트할 설정 키-값 쌍
+            key (str): 설정 키
             
         Returns:
-            bool: 업데이트 성공 여부
+            bool: 토글 후 설정값
         """
-        updated = False
-        for key, value in settings_dict.items():
-            if key in self.settings:
-                self.settings[key] = value
-                updated = True
-        return updated
-    
-    def reset_to_defaults(self):
-        """모든 설정을 기본값으로 초기화"""
-        self.settings = {
-            "sound_enabled": True,
-            "notification_enabled": True,
-            "theme": "light",
-            "language": "ko",
-            "auto_start": False,
-            "timer_sound": "default",
-            "recent_products": []
-        }
-        return True
-    
-    def add_recent_product(self, product_id, max_recent=10):
-        """최근 사용한 제품 목록에 제품 추가
+        if key in self.settings and isinstance(self.settings[key], bool):
+            self.settings[key] = not self.settings[key]
+            logger.info(f"설정 토글: {key} = {self.settings[key]}")
+            return self.settings[key]
+        return False
+        
+    def reset_settings(self) -> None:
+        """모든 설정 초기화"""
+        self.settings = self._get_default_settings()
+        logger.info("설정을 초기화했습니다.")
+        
+    def add_recent_product(self, product_id: str, max_recent: int = 10) -> None:
+        """최근 사용 제품 추가
         
         Args:
             product_id (str): 제품 ID
-            max_recent (int, optional): 최근 사용 목록 최대 크기
-            
-        Returns:
-            bool: 추가 성공 여부
+            max_recent (int, optional): 최대 저장 개수
         """
-        recent_products = self.settings.get("recent_products", [])
+        recent = self.settings.get("recent_products", [])
         
-        # 이미 목록에 있으면 제거 (맨 앞으로 다시 추가하기 위해)
-        if product_id in recent_products:
-            recent_products.remove(product_id)
+        # 이미 있으면 제거 (나중에 맨 앞에 추가)
+        if product_id in recent:
+            recent.remove(product_id)
             
-        # 목록 맨 앞에 추가
-        recent_products.insert(0, product_id)
+        # 맨 앞에 추가
+        recent.insert(0, product_id)
         
-        # 최대 크기 초과 시 오래된 항목 제거
-        if len(recent_products) > max_recent:
-            recent_products = recent_products[:max_recent]
-            
-        self.settings["recent_products"] = recent_products
-        return True
-    
-    def get_recent_products(self, limit=5):
-        """최근 사용한 제품 ID 목록 반환
+        # 최대 개수 유지
+        self.settings["recent_products"] = recent[:max_recent]
+        logger.debug(f"최근 사용 제품 추가: {product_id}")
+        
+    def get_recent_product_ids(self, limit: int = 5) -> List[str]:
+        """최근 사용 제품 ID 목록 조회
         
         Args:
-            limit (int, optional): 반환할 제품 수
+            limit (int, optional): 최대 개수
             
         Returns:
-            list: 최근 사용한 제품 ID 목록
+            list: 최근 사용 제품 ID 목록
         """
-        recent_products = self.settings.get("recent_products", [])
-        return recent_products[:limit] 
+        recent = self.settings.get("recent_products", [])
+        return recent[:limit] 
